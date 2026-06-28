@@ -1,0 +1,19 @@
+-- Optional demo campaign seed.
+-- Upload a transparent PNG and banner to the matching Storage paths first,
+-- then replace OWNER_UUID with a registered profile id.
+--
+-- insert into public.campaigns (
+--   owner_id, category_id, title, slug, description,
+--   frame_path, banner_path, status, is_featured
+-- )
+-- select
+--   'OWNER_UUID',
+--   id,
+--   'Protect Our Shared Planet',
+--   'protect-our-shared-planet',
+--   'Stand with communities taking practical action for a healthier planet.',
+--   'OWNER_UUID/planet-frame.png',
+--   'OWNER_UUID/planet-banner.jpg',
+--   'published',
+--   true
+-- from public.categories where slug = 'environment';
