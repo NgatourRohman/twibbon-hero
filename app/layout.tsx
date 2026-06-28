@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { GeistSans } from "geist/font/sans";
 import { Toaster } from "sonner";
+import { Analytics } from "@vercel/analytics/next";
 import "@/app/globals.css";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
@@ -29,6 +30,7 @@ export default async function RootLayout({
         <main className="min-h-[calc(100vh-8rem)]">{children}</main>
         <Footer text={t.footer} />
         <Toaster richColors position="top-center" />
+        <Analytics />
       </body>
     </html>
   );
