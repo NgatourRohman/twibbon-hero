@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Calendar, UserRound, Users } from "lucide-react";
-import { getCampaign } from "@/lib/data";
+import { Calendar, Download, Eye, UserRound } from "lucide-react";
+import { getCampaign, getPublicCampaignStats } from "@/lib/data";
 import { getDictionary } from "@/lib/i18n";
 import { formatNumber, getPublicUrl } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +36,7 @@ export default async function CampaignDetailPage({
     getDictionary(),
   ]);
   if (!campaign || campaign.status !== "published") notFound();
+  const stats = await getPublicCampaignStats(campaign.id);
   const frames = (campaign.campaign_frames?.length
     ? [...campaign.campaign_frames].sort((a, b) => a.position - b.position)
     : [{ id: campaign.id, label: "Frame 1", frame_path: campaign.frame_path }]
@@ -49,8 +50,6 @@ export default async function CampaignDetailPage({
       Boolean(frame.url),
     );
   if (!frames.length) notFound();
-  const usage = campaign.campaign_usages?.[0]?.count ?? 0;
-
   return (
     <div className="container-page py-9 sm:py-14">
       <div className="grid min-w-0 gap-8 sm:gap-14 lg:grid-cols-[minmax(0,1.05fr)_minmax(360px,.95fr)]">
@@ -76,8 +75,12 @@ export default async function CampaignDetailPage({
               {campaign.profiles?.full_name || campaign.profiles?.username || "Community"}
             </span>
             <span className="flex items-center gap-2 rounded-xl bg-white/70 px-3 py-2 shadow-sm">
-              <Users className="size-4" />
-              {formatNumber(usage, locale)} {locale === "id" ? "pendukung" : "supporters"}
+              <Eye className="size-4" />
+              {formatNumber(stats.views, locale)} {locale === "id" ? "tayangan" : "views"}
+            </span>
+            <span className="flex items-center gap-2 rounded-xl bg-white/70 px-3 py-2 shadow-sm">
+              <Download className="size-4" />
+              {formatNumber(stats.downloads, locale)} {locale === "id" ? "download" : "downloads"}
             </span>
             <span className="flex items-center gap-2 rounded-xl bg-white/70 px-3 py-2 shadow-sm">
               <Calendar className="size-4" />

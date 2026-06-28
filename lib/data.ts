@@ -71,3 +71,20 @@ export async function getCampaign(slug: string): Promise<Campaign | null> {
   }
   return data as Campaign | null;
 }
+
+export async function getPublicCampaignStats(campaignId: string) {
+  if (!hasSupabaseConfig) return { views: 0, downloads: 0 };
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("get_public_campaign_stats", {
+    p_campaign_id: campaignId,
+  });
+  if (error) {
+    console.error("Unable to load public campaign stats:", error.message);
+    return { views: 0, downloads: 0 };
+  }
+  const stats = data?.[0];
+  return {
+    views: Number(stats?.views ?? 0),
+    downloads: Number(stats?.downloads ?? 0),
+  };
+}

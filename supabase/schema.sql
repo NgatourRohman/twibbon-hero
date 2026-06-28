@@ -398,6 +398,27 @@ using (
   or (select public.is_admin())
 );
 
+-- Public pages can read aggregate counts without exposing raw event records.
+create or replace function public.get_public_campaign_stats(p_campaign_id uuid)
+returns table (views bigint, downloads bigint)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select
+    (select count(*) from public.campaign_usages where campaign_id = p_campaign_id),
+    (select count(*) from public.campaign_downloads where campaign_id = p_campaign_id)
+  where exists (
+    select 1
+    from public.campaigns
+    where id = p_campaign_id and status = 'published'
+  );
+$$;
+
+revoke all on function public.get_public_campaign_stats(uuid) from public;
+grant execute on function public.get_public_campaign_stats(uuid) to anon, authenticated;
+
 -- Storage buckets. Frames/banners are intentionally public; raw user uploads
 -- are private. The editor currently processes photos locally for better privacy.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
