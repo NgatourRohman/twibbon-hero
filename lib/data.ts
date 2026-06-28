@@ -20,7 +20,7 @@ export async function getPublishedCampaigns({
   let request = supabase
     .from("campaigns")
     .select(
-      "*, categories(*), profiles!campaigns_owner_id_fkey(full_name,username,avatar_url)",
+      "*, categories(*), profiles!campaigns_owner_id_fkey(full_name,username,avatar_url), campaign_frames(*)",
     )
     .eq("status", "published")
     .order("is_featured", { ascending: false })
@@ -61,7 +61,7 @@ export async function getCampaign(slug: string): Promise<Campaign | null> {
   const { data, error } = await supabase
     .from("campaigns")
     .select(
-      "*, categories(*), profiles!campaigns_owner_id_fkey(full_name,username,avatar_url)",
+      "*, categories(*), profiles!campaigns_owner_id_fkey(full_name,username,avatar_url), campaign_frames(*)",
     )
     .eq("slug", slug)
     .single();

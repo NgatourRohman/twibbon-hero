@@ -18,7 +18,7 @@ export default async function EditCampaignPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   const [{ data }, categories] = await Promise.all([
-    supabase.from("campaigns").select("*").eq("id", (await params).id).eq("owner_id", user.id).single(),
+    supabase.from("campaigns").select("*, campaign_frames(*)").eq("id", (await params).id).eq("owner_id", user.id).single(),
     getCategories(),
   ]);
   if (!data) notFound();

@@ -33,11 +33,11 @@ function useHtmlImage(src: string | null, crossOrigin?: string) {
 export function TwibbonEditor({
   campaignId,
   campaignTitle,
-  frameUrl,
+  frames,
 }: {
   campaignId: string;
   campaignTitle: string;
-  frameUrl: string;
+  frames: { id: string; label: string; url: string }[];
 }) {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -46,9 +46,11 @@ export function TwibbonEditor({
   const [format, setFormat] = useState<"png" | "jpeg">("png");
   const [scale, setScale] = useState(1);
   const [rotation, setRotation] = useState(0);
+  const [selectedFrameId, setSelectedFrameId] = useState(frames[0].id);
   const [position, setPosition] = useState({ x: SIZE / 2, y: SIZE / 2 });
   const photo = useHtmlImage(photoUrl);
-  const frame = useHtmlImage(frameUrl, "anonymous");
+  const selectedFrame = frames.find((item) => item.id === selectedFrameId) ?? frames[0];
+  const frame = useHtmlImage(selectedFrame.url, "anonymous");
 
   useEffect(() => {
     const element = containerRef.current;
@@ -172,6 +174,31 @@ export function TwibbonEditor({
         </div>
       </div>
       <div className="glass-panel mt-4 rounded-[22px] p-4 sm:mt-5 sm:rounded-[26px] sm:p-5">
+        {frames.length > 1 && (
+          <div className="mb-4">
+            <Label>Choose frame</Label>
+            <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4">
+              {frames.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setSelectedFrameId(item.id)}
+                  className={`overflow-hidden rounded-xl border-2 bg-white p-1 text-left transition ${
+                    selectedFrameId === item.id
+                      ? "border-primary shadow-glow"
+                      : "border-transparent hover:border-primary/30"
+                  }`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={item.url} alt={item.label} className="aspect-square w-full object-contain" />
+                  <span className="block truncate px-1 py-1 text-center text-xs font-semibold">
+                    {item.label}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <label className="group flex cursor-pointer items-center justify-center gap-3 rounded-2xl border border-dashed border-primary/25 bg-gradient-to-br from-violet-50/80 to-white/70 p-4 text-sm font-bold transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-glow">
           <span className="grid size-9 place-items-center rounded-xl bg-white text-primary shadow-clay transition group-hover:scale-105">
             <ImagePlus className="size-4.5" />

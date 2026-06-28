@@ -18,6 +18,15 @@ export interface Category {
   icon: string | null;
 }
 
+export interface CampaignFrame {
+  id: string;
+  campaign_id: string;
+  frame_path: string;
+  label: string;
+  position: number;
+  created_at: string;
+}
+
 export interface Campaign {
   id: string;
   owner_id: string;
@@ -37,4 +46,5 @@ export interface Campaign {
   profiles?: Pick<Profile, "full_name" | "username" | "avatar_url"> | null;
   campaign_usages?: { count: number }[];
   campaign_downloads?: { count: number }[];
+  campaign_frames?: CampaignFrame[];
 }

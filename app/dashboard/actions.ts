@@ -20,7 +20,7 @@ export async function deleteCampaign(formData: FormData) {
 
   const { data: campaign } = await supabase
     .from("campaigns")
-    .select("frame_path,banner_path")
+    .select("frame_path,banner_path,campaign_frames(frame_path)")
     .eq("id", id)
     .eq("owner_id", user.id)
     .single();
@@ -28,7 +28,13 @@ export async function deleteCampaign(formData: FormData) {
 
   const { error } = await supabase.from("campaigns").delete().eq("id", id);
   if (!error) {
-    await supabase.storage.from("campaign-frames").remove([campaign.frame_path]);
+    const framePaths = [
+      ...new Set([
+        campaign.frame_path,
+        ...(campaign.campaign_frames ?? []).map((frame) => frame.frame_path),
+      ]),
+    ];
+    await supabase.storage.from("campaign-frames").remove(framePaths);
     if (campaign.banner_path) {
       await supabase.storage
         .from("campaign-banners")

@@ -14,7 +14,7 @@ const TwibbonEditor = dynamic(
 export function TwibbonEditorLoader(props: {
   campaignId: string;
   campaignTitle: string;
-  frameUrl: string;
+  frames: { id: string; label: string; url: string }[];
 }) {
   return <TwibbonEditor {...props} />;
 }

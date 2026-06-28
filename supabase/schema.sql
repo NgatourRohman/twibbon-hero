@@ -54,6 +54,16 @@ create table if not exists public.campaigns (
   )
 );
 
+create table if not exists public.campaign_frames (
+  id uuid primary key default gen_random_uuid(),
+  campaign_id uuid not null references public.campaigns(id) on delete cascade,
+  frame_path text not null check (frame_path <> ''),
+  label text not null check (char_length(label) between 1 and 80),
+  position integer not null default 0 check (position >= 0),
+  created_at timestamptz not null default now(),
+  unique (campaign_id, frame_path)
+);
+
 create table if not exists public.campaign_usages (
   id bigint generated always as identity primary key,
   campaign_id uuid not null references public.campaigns(id) on delete cascade,
@@ -84,6 +94,8 @@ create index if not exists campaigns_status_created_idx
   on public.campaigns(status, created_at desc);
 create index if not exists campaigns_owner_idx on public.campaigns(owner_id);
 create index if not exists campaigns_category_idx on public.campaigns(category_id);
+create index if not exists campaign_frames_campaign_position_idx
+  on public.campaign_frames(campaign_id, position);
 create index if not exists campaigns_featured_idx
   on public.campaigns(is_featured desc) where status = 'published';
 create index if not exists campaign_usages_campaign_idx
@@ -152,6 +164,7 @@ grant execute on function public.is_admin() to anon, authenticated;
 alter table public.profiles enable row level security;
 alter table public.categories enable row level security;
 alter table public.campaigns enable row level security;
+alter table public.campaign_frames enable row level security;
 alter table public.campaign_usages enable row level security;
 alter table public.campaign_downloads enable row level security;
 alter table public.campaign_shares enable row level security;
@@ -166,6 +179,9 @@ grant insert, update, delete on public.categories to authenticated;
 
 grant select on public.campaigns to anon, authenticated;
 grant insert, update, delete on public.campaigns to authenticated;
+
+grant select on public.campaign_frames to anon, authenticated;
+grant insert, update, delete on public.campaign_frames to authenticated;
 
 grant insert on public.campaign_usages to anon, authenticated;
 grant insert on public.campaign_downloads to anon, authenticated;
@@ -251,6 +267,66 @@ using (owner_id = (select auth.uid()));
 drop policy if exists "Admins manage all campaigns" on public.campaigns;
 create policy "Admins manage all campaigns"
 on public.campaigns for all to authenticated
+using ((select public.is_admin()))
+with check ((select public.is_admin()));
+
+-- Campaign frames
+drop policy if exists "Visible campaign frames are readable" on public.campaign_frames;
+create policy "Visible campaign frames are readable"
+on public.campaign_frames for select
+using (
+  exists (
+    select 1 from public.campaigns
+    where id = campaign_id
+      and (
+        status = 'published'
+        or owner_id = (select auth.uid())
+        or (select public.is_admin())
+      )
+  )
+);
+
+drop policy if exists "Owners add campaign frames" on public.campaign_frames;
+create policy "Owners add campaign frames"
+on public.campaign_frames for insert to authenticated
+with check (
+  exists (
+    select 1 from public.campaigns
+    where id = campaign_id
+      and owner_id = (select auth.uid())
+      and status in ('draft', 'pending', 'rejected')
+  )
+);
+
+drop policy if exists "Owners update campaign frames" on public.campaign_frames;
+create policy "Owners update campaign frames"
+on public.campaign_frames for update to authenticated
+using (
+  exists (
+    select 1 from public.campaigns
+    where id = campaign_id and owner_id = (select auth.uid())
+  )
+)
+with check (
+  exists (
+    select 1 from public.campaigns
+    where id = campaign_id and owner_id = (select auth.uid())
+  )
+);
+
+drop policy if exists "Owners delete campaign frames" on public.campaign_frames;
+create policy "Owners delete campaign frames"
+on public.campaign_frames for delete to authenticated
+using (
+  exists (
+    select 1 from public.campaigns
+    where id = campaign_id and owner_id = (select auth.uid())
+  )
+);
+
+drop policy if exists "Admins manage campaign frames" on public.campaign_frames;
+create policy "Admins manage campaign frames"
+on public.campaign_frames for all to authenticated
 using ((select public.is_admin()))
 with check ((select public.is_admin()));
 
@@ -386,6 +462,13 @@ with check (
   bucket_id = 'user-uploads'
   and (storage.foldername(name))[1] = (select auth.uid())::text
 );
+
+-- Preserve existing single-frame campaigns when upgrading to multi-frame.
+insert into public.campaign_frames (campaign_id, frame_path, label, position)
+select id, frame_path, 'Frame 1', 0
+from public.campaigns
+where frame_path <> ''
+on conflict (campaign_id, frame_path) do nothing;
 
 insert into public.categories (name_en, name_id, slug, icon)
 values

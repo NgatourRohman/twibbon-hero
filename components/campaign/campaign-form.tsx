@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ImagePlus, Loader2, Save, Send } from "lucide-react";
+import { ImagePlus, Loader2, Save, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { slugify } from "@/lib/utils";
-import type { Campaign, Category } from "@/lib/types";
+import type { Campaign, CampaignFrame, Category } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,10 +37,16 @@ export function CampaignForm({
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [framePreview, setFramePreview] = useState<string | null>(
-    campaign?.frame_path
-      ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/campaign-frames/${campaign.frame_path}`
-      : null,
+  const initialFrames = campaign?.campaign_frames?.length
+    ? [...campaign.campaign_frames].sort((a, b) => a.position - b.position)
+    : [];
+  const [existingFrames, setExistingFrames] =
+    useState<CampaignFrame[]>(initialFrames);
+  const [removedFrames, setRemovedFrames] = useState<CampaignFrame[]>([]);
+  const [framePreviews, setFramePreviews] = useState<
+    { name: string; url: string }[]
+  >(
+    [],
   );
   const [bannerPreview, setBannerPreview] = useState<string | null>(
     campaign?.banner_path
@@ -56,6 +62,22 @@ export function CampaignForm({
     if (file) setter(URL.createObjectURL(file));
   }
 
+  function previewFrames(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    setFramePreviews((current) => {
+      current.forEach((item) => URL.revokeObjectURL(item.url));
+      return files.map((file) => ({
+        name: file.name,
+        url: URL.createObjectURL(file),
+      }));
+    });
+  }
+
+  function removeExistingFrame(frame: CampaignFrame) {
+    setExistingFrames((current) => current.filter((item) => item.id !== frame.id));
+    setRemovedFrames((current) => [...current, frame]);
+  }
+
   async function submit(
     event: React.FormEvent<HTMLFormElement>,
     status: "draft" | "pending",
@@ -63,7 +85,9 @@ export function CampaignForm({
     event.preventDefault();
     setLoading(true);
     const form = new FormData(event.currentTarget);
-    const frame = form.get("frame") as File;
+    const frames = form
+      .getAll("frames")
+      .filter((item): item is File => item instanceof File && item.size > 0);
     const banner = form.get("banner") as File;
     const supabase = createClient();
     const {
@@ -74,14 +98,20 @@ export function CampaignForm({
       return;
     }
     try {
-      if (!campaign && (!frame || frame.size === 0)) {
-        throw new Error("A transparent PNG frame is required.");
+      if (!campaign && frames.length === 0) {
+        throw new Error("At least one transparent PNG frame is required.");
       }
-      if (frame?.size) {
+      if (existingFrames.length + frames.length === 0) {
+        throw new Error("A campaign must keep at least one frame.");
+      }
+      if (existingFrames.length + frames.length > 10) {
+        throw new Error("A campaign can contain at most 10 frames.");
+      }
+      for (const frame of frames) {
         if (frame.type !== "image/png") throw new Error("Frame must be a PNG file.");
         if (frame.size > 10 * 1024 * 1024) throw new Error("Frame must be under 10 MB.");
         if (!(await hasTransparency(frame))) {
-          throw new Error("The frame must contain a transparent area.");
+          throw new Error(`${frame.name} must contain a transparent area.`);
         }
       }
       if (banner?.size && !["image/jpeg", "image/png", "image/webp"].includes(banner.type)) {
@@ -91,15 +121,21 @@ export function CampaignForm({
         throw new Error("Banner must be under 10 MB.");
       }
 
-      let framePath = campaign?.frame_path ?? "";
       let bannerPath = campaign?.banner_path ?? null;
       const token = crypto.randomUUID();
-      if (frame?.size) {
-        framePath = `${user.id}/${token}-frame.png`;
+      const uploadedFramePaths: string[] = [];
+      for (const [index, frame] of frames.entries()) {
+        const framePath = `${user.id}/${token}-${index + 1}-frame.png`;
         const { error } = await supabase.storage
           .from("campaign-frames")
           .upload(framePath, frame, { contentType: "image/png" });
-        if (error) throw error;
+        if (error) {
+          if (uploadedFramePaths.length) {
+            await supabase.storage.from("campaign-frames").remove(uploadedFramePaths);
+          }
+          throw error;
+        }
+        uploadedFramePaths.push(framePath);
       }
       if (banner?.size) {
         const ext = banner.name.split(".").pop()?.toLowerCase() || "jpg";
@@ -111,36 +147,63 @@ export function CampaignForm({
       }
 
       const title = String(form.get("title")).trim();
+      const primaryFramePath =
+        existingFrames[0]?.frame_path ?? uploadedFramePaths[0];
       const record = {
         owner_id: user.id,
         category_id: String(form.get("categoryId")) || null,
         title,
         slug: campaign?.slug || `${slugify(title)}-${token.slice(0, 6)}`,
         description: String(form.get("description")).trim(),
-        frame_path: framePath,
+        frame_path: primaryFramePath,
         banner_path: bannerPath,
         starts_at: String(form.get("startsAt")) || null,
         ends_at: String(form.get("endsAt")) || null,
         status,
         moderated_by: null,
         moderated_at: null,
+        is_featured: false,
       };
-      const request = campaign
-        ? supabase.from("campaigns").update(record).eq("id", campaign.id)
-        : supabase.from("campaigns").insert(record);
-      const { error } = await request;
-      if (error) {
-        if (!campaign && framePath) {
-          await supabase.storage.from("campaign-frames").remove([framePath]);
+      const campaignRequest = campaign
+        ? supabase.from("campaigns").update(record).eq("id", campaign.id).select("id").single()
+        : supabase.from("campaigns").insert(record).select("id").single();
+      const { data: savedCampaign, error: campaignError } = await campaignRequest;
+      if (campaignError || !savedCampaign) {
+        if (uploadedFramePaths.length) {
+          await supabase.storage.from("campaign-frames").remove(uploadedFramePaths);
         }
         if (!campaign && bannerPath) {
           await supabase.storage.from("campaign-banners").remove([bannerPath]);
         }
-        throw error;
+        throw campaignError ?? new Error("Could not save campaign.");
       }
 
-      if (campaign && frame?.size && campaign.frame_path !== framePath) {
-        await supabase.storage.from("campaign-frames").remove([campaign.frame_path]);
+      if (uploadedFramePaths.length) {
+        const { error: framesError } = await supabase.from("campaign_frames").insert(
+          uploadedFramePaths.map((framePath, index) => ({
+            campaign_id: savedCampaign.id,
+            frame_path: framePath,
+            label: `Frame ${existingFrames.length + index + 1}`,
+            position: existingFrames.length + index,
+          })),
+        );
+        if (framesError) {
+          if (!campaign) {
+            await supabase.from("campaigns").delete().eq("id", savedCampaign.id);
+          }
+          await supabase.storage.from("campaign-frames").remove(uploadedFramePaths);
+          throw framesError;
+        }
+      }
+      if (removedFrames.length) {
+        const { error: removeError } = await supabase
+          .from("campaign_frames")
+          .delete()
+          .in("id", removedFrames.map((frame) => frame.id));
+        if (removeError) throw removeError;
+        await supabase.storage
+          .from("campaign-frames")
+          .remove(removedFrames.map((frame) => frame.frame_path));
       }
       if (
         campaign?.banner_path &&
@@ -206,16 +269,62 @@ export function CampaignForm({
       </div>
       <aside className="space-y-6">
         <div className="glass-panel rounded-[22px] p-4 sm:rounded-[26px] sm:p-5">
-          <Label>Transparent frame (PNG)</Label>
+          <Label>Transparent frames (PNG)</Label>
+          {existingFrames.length > 0 && (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {existingFrames.map((frame) => (
+                <div key={frame.id} className="relative overflow-hidden rounded-xl border bg-white">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/campaign-frames/${frame.frame_path}`}
+                    alt={frame.label}
+                    className="aspect-square w-full object-contain"
+                  />
+                  <span className="block truncate px-2 py-1 text-center text-xs font-semibold">
+                    {frame.label}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${frame.label}`}
+                    onClick={() => removeExistingFrame(frame)}
+                    className="absolute right-1.5 top-1.5 grid size-8 place-items-center rounded-full bg-white/90 text-red-600 shadow"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {framePreviews.length > 0 && (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {framePreviews.map((frame, index) => (
+                <div key={frame.url} className="overflow-hidden rounded-xl border bg-white">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={frame.url} alt={frame.name} className="aspect-square w-full object-contain" />
+                  <span className="block truncate px-2 py-1 text-center text-xs font-semibold">
+                    Frame {existingFrames.length + index + 1}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           <label className="mt-3 block cursor-pointer overflow-hidden rounded-2xl border border-dashed border-primary/25 bg-gradient-to-br from-violet-50/70 to-white/70 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/55 hover:shadow-glow">
-            {framePreview ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={framePreview} alt="Frame preview" className="aspect-square w-full object-contain" />
-            ) : (
-              <span className="grid aspect-square place-items-center text-center text-sm text-muted-foreground"><span><ImagePlus className="mx-auto mb-2 size-8 text-primary" />Choose 1:1 PNG frame</span></span>
-            )}
-            <input name="frame" type="file" accept="image/png" className="sr-only" required={!campaign} onChange={(e) => preview(e, setFramePreview)} />
+            <span className="grid min-h-32 place-items-center text-center text-sm text-muted-foreground">
+              <span><ImagePlus className="mx-auto mb-2 size-8 text-primary" />Choose up to 10 PNG frames</span>
+            </span>
+            <input
+              name="frames"
+              type="file"
+              accept="image/png"
+              multiple
+              className="sr-only"
+              required={!campaign}
+              onChange={previewFrames}
+            />
           </label>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Each file must be transparent, square, and no larger than 10 MB.
+          </p>
         </div>
         <div className="glass-panel rounded-[22px] p-4 sm:rounded-[26px] sm:p-5">
           <Label>Campaign banner</Label>

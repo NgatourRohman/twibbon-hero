@@ -36,8 +36,19 @@ export default async function CampaignDetailPage({
     getDictionary(),
   ]);
   if (!campaign || campaign.status !== "published") notFound();
-  const frameUrl = getPublicUrl("campaign-frames", campaign.frame_path);
-  if (!frameUrl) notFound();
+  const frames = (campaign.campaign_frames?.length
+    ? [...campaign.campaign_frames].sort((a, b) => a.position - b.position)
+    : [{ id: campaign.id, label: "Frame 1", frame_path: campaign.frame_path }]
+  )
+    .map((frame) => ({
+      id: frame.id,
+      label: frame.label,
+      url: getPublicUrl("campaign-frames", frame.frame_path),
+    }))
+    .filter((frame): frame is { id: string; label: string; url: string } =>
+      Boolean(frame.url),
+    );
+  if (!frames.length) notFound();
   const usage = campaign.campaign_usages?.[0]?.count ?? 0;
 
   return (
@@ -47,7 +58,7 @@ export default async function CampaignDetailPage({
           <TwibbonEditorLoader
             campaignId={campaign.id}
             campaignTitle={campaign.title}
-            frameUrl={frameUrl}
+            frames={frames}
           />
         </div>
         <article className="glass-panel min-w-0 rounded-[24px] p-5 sm:rounded-[30px] sm:p-8 lg:self-start">
